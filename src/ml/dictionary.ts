@@ -49,7 +49,10 @@ export async function loadWordDataset(): Promise<WordMLDataset> {
   if (globalDataset) return globalDataset;
 
   try {
-    const res = await fetch('/models/word_ml_data.json');
+    const baseUrl = import.meta.env.BASE_URL.endsWith('/')
+      ? import.meta.env.BASE_URL
+      : `${import.meta.env.BASE_URL}/`;
+    const res = await fetch(`${baseUrl}models/word_ml_data.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data: WordMLDataset = await res.json();
     globalDataset = data;
