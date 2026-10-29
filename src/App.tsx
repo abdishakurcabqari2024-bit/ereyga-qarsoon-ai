@@ -8,6 +8,9 @@ import { MLLaboratory } from './components/MLLaboratory';
 import { StatsModal } from './components/StatsModal';
 import { SeedModal } from './components/SeedModal';
 import { HelpModal } from './components/HelpModal';
+import { AuthModal } from './components/AuthModal';
+import { ProfileModal } from './components/ProfileModal';
+import { LeaderboardModal } from './components/LeaderboardModal';
 import { loadWordDataset, pickTargetWord, getDailySeed, isValidWord } from './ml/dictionary';
 import {
   evaluateGuessLetters,
@@ -25,7 +28,9 @@ import {
   isSoundEnabled,
   setSoundEnabled,
 } from './utils/sound';
+import { getCurrentUser, logoutUser, recordGameResult } from './services/auth';
 import type { WordMLDataset, WordEntry, GuessResult, GameStats, LetterStatus } from './types/game';
+import type { UserProfile } from './types/auth';
 
 const MAX_GUESSES = 6;
 const DEFAULT_LENGTH = 5;
@@ -47,6 +52,12 @@ export const App: React.FC = () => {
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
   const [activeTab, setActiveTab] = useState<'game' | 'lab'>('game');
 
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+
   // Modals state
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -67,8 +78,10 @@ export const App: React.FC = () => {
   const [isShaking, setIsShaking] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Statistics
+  // Statistics (Guest / LocalStorage fallback)
   const [stats, setStats] = useState<GameStats>(() => {
+    const user = getCurrentUser();
+    if (user && user.stats) return user.stats;
     try {
       const saved = localStorage.getItem('ereyga_stats');
       return saved ? JSON.parse(saved) : INITIAL_STATS;
@@ -78,42 +91,94 @@ export const App: React.FC = () => {
   });
 
   // Show Toast
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, duration = 2800) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
-    }, 2500);
+    }, duration);
   }, []);
 
-  // Save Stats to LocalStorage
-  const updateStats = useCallback((won: boolean, guessCount: number) => {
-    setStats((prev) => {
-      const played = prev.played + 1;
-      const totalWon = won ? prev.won + 1 : prev.won;
-      const currentStreak = won ? prev.currentStreak + 1 : 0;
-      const maxStreak = Math.max(prev.maxStreak, currentStreak);
-      const distribution = { ...prev.distribution };
-      if (won) {
-        distribution[guessCount] = (distribution[guessCount] || 0) + 1;
+  // Save Stats to LocalStorage and current user profile
+  const updateStats = useCallback(
+    (won: boolean, guessCount: number, wordTier: number, mlAffinity: number) => {
+      // If user is logged in, record through Auth Service
+      if (currentUser) {
+        const result = recordGameResult({
+          won,
+          guessesCount: guessCount,
+          wordTier,
+          mlAffinity,
+        });
+
+        if (result.user) {
+          setCurrentUser({ ...result.user });
+          setStats(result.user.stats);
+
+          if (result.leveledUp) {
+            setTimeout(() => {
+              showToast(
+                lang === 'so'
+                  ? `🎉 Hambalyo! Waxaad gaartay Heerka (Level) ${result.user?.level}! (+${result.earnedXp} XP)`
+                  : `🎉 Level Up! You reached Level ${result.user?.level}! (+${result.earnedXp} XP)`,
+                4000
+              );
+            }, 1000);
+          } else if (result.earnedXp > 0) {
+            setTimeout(() => {
+              showToast(
+                lang === 'so'
+                  ? `⭐ Waxaad heshay +${result.earnedXp} XP!`
+                  : `⭐ Earned +${result.earnedXp} XP!`,
+                2500
+              );
+            }, 800);
+          }
+
+          if (result.newBadges.length > 0) {
+            setTimeout(() => {
+              const b = result.newBadges[0];
+              showToast(
+                lang === 'so'
+                  ? `🏆 Koob Cusub oo la furay: ${b.icon} ${b.nameSo}!`
+                  : `🏆 New Badge Unlocked: ${b.icon} ${b.nameEn}!`,
+                4500
+              );
+            }, 2000);
+          }
+          return;
+        }
       }
 
-      const next = {
-        played,
-        won: totalWon,
-        currentStreak,
-        maxStreak,
-        distribution,
-        averageAffinity: prev.averageAffinity,
-      };
+      // Guest stats fallback
+      setStats((prev) => {
+        const played = prev.played + 1;
+        const totalWon = won ? prev.won + 1 : prev.won;
+        const currentStreak = won ? prev.currentStreak + 1 : 0;
+        const maxStreak = Math.max(prev.maxStreak, currentStreak);
+        const distribution = { ...prev.distribution };
+        if (won) {
+          distribution[guessCount] = (distribution[guessCount] || 0) + 1;
+        }
 
-      try {
-        localStorage.setItem('ereyga_stats', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
+        const next = {
+          played,
+          won: totalWon,
+          currentStreak,
+          maxStreak,
+          distribution,
+          averageAffinity: prev.averageAffinity,
+        };
+
+        try {
+          localStorage.setItem('ereyga_stats', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    },
+    [currentUser, lang, showToast]
+  );
 
   // Initial Load of ML Dataset
   useEffect(() => {
@@ -169,6 +234,29 @@ export const App: React.FC = () => {
     const next = !soundOn;
     setSoundOn(next);
     setSoundEnabled(next);
+  };
+
+  // Auth Callbacks
+  const handleAuthSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (user.stats && user.stats.played > 0) {
+      setStats(user.stats);
+    }
+    showToast(
+      lang === 'so'
+        ? `Ku soo dhawoow, ${user.username}! 🎉`
+        : `Welcome back, ${user.username}! 🎉`
+    );
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+    showToast(
+      lang === 'so'
+        ? 'Waad ka baxday koontadaada (Guest Mode)'
+        : 'Logged out (Playing as Guest)'
+    );
   };
 
   // Virtual & Physical Keyboard Letter Handlers
@@ -252,7 +340,7 @@ export const App: React.FC = () => {
     const isWon = currentGuess.toLowerCase() === targetWord.word.toLowerCase();
     if (isWon) {
       setGameStatus('WON');
-      updateStats(true, nextGuesses.length);
+      updateStats(true, nextGuesses.length, targetWord.tier, mlAffinity);
       setTimeout(() => {
         playWinSound();
         confetti({
@@ -269,7 +357,7 @@ export const App: React.FC = () => {
     // Check Loss Condition
     if (nextGuesses.length >= MAX_GUESSES) {
       setGameStatus('LOST');
-      updateStats(false, nextGuesses.length);
+      updateStats(false, nextGuesses.length, targetWord.tier, mlAffinity);
       setTimeout(() => {
         playLoseSound();
         setIsStatsOpen(true);
@@ -338,6 +426,10 @@ export const App: React.FC = () => {
         setActiveTab={setActiveTab}
         seed={seed}
         isDaily={isDaily}
+        currentUser={currentUser}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -414,6 +506,30 @@ export const App: React.FC = () => {
       <HelpModal
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
+        lang={lang}
+      />
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={handleAuthSuccess}
+        lang={lang}
+      />
+
+      {/* User Profile Modal */}
+      <ProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={currentUser}
+        onLogout={handleLogout}
+        lang={lang}
+      />
+
+      {/* Leaderboard Modal */}
+      <LeaderboardModal
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
         lang={lang}
       />
     </div>

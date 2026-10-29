@@ -1,5 +1,6 @@
 import React from 'react';
-import { Sparkles, BarChart3, HelpCircle, Volume2, VolumeX, Cpu, RefreshCw, KeyRound, Globe } from 'lucide-react';
+import { Sparkles, BarChart3, HelpCircle, Volume2, VolumeX, Cpu, RefreshCw, KeyRound, Globe, Trophy, LogIn } from 'lucide-react';
+import type { UserProfile } from '../types/auth';
 
 interface NavbarProps {
   lang: 'so' | 'en';
@@ -14,6 +15,10 @@ interface NavbarProps {
   setActiveTab: (tab: 'game' | 'lab') => void;
   seed: string;
   isDaily: boolean;
+  currentUser: UserProfile | null;
+  onOpenAuth: () => void;
+  onOpenProfile: () => void;
+  onOpenLeaderboard: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -29,6 +34,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   seed,
   isDaily,
+  currentUser,
+  onOpenAuth,
+  onOpenProfile,
+  onOpenLeaderboard,
 }) => {
   return (
     <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-3 sm:px-6 py-2.5">
@@ -83,6 +92,41 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Actions Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5">
+          {/* User Profile / Login Button */}
+          {currentUser ? (
+            <button
+              onClick={onOpenProfile}
+              title={lang === 'so' ? 'Koontada Cayaaryahanka' : 'Player Profile'}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 text-xs font-semibold transition-all shadow-sm"
+            >
+              <span className="text-base">{currentUser.avatar}</span>
+              <span className="hidden md:inline font-bold max-w-[80px] truncate">
+                {currentUser.username}
+              </span>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1 py-0.2 rounded font-mono font-bold">
+                L{currentUser.level}
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAuth}
+              title={lang === 'so' ? 'Soo Gal / Is-Diiwaangali' : 'Sign In / Register'}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-950/40 active:scale-95"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>{lang === 'so' ? 'Gal' : 'Login'}</span>
+            </button>
+          )}
+
+          {/* Leaderboard Trophy Button */}
+          <button
+            onClick={onOpenLeaderboard}
+            title={lang === 'so' ? 'Shaxda Guuleystayaasha' : 'Leaderboard'}
+            className="p-1.5 sm:p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-amber-400 border border-amber-500/20 transition-colors"
+          >
+            <Trophy className="w-4 h-4" />
+          </button>
+
           {/* Seed indicator */}
           <button
             onClick={onOpenSeed}
